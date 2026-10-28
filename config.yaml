@@ -1,0 +1,43 @@
+# Trading limits. Only an admin (the ubuntu user, via sudo) can edit this file.
+# The agent reads it but cannot change it. Changes apply on the next command;
+# restart the monitor (sudo systemctl restart trader-monitor) to be sure it picks them up.
+
+mode: paper            # paper = live prices, simulated orders. live = real orders.
+broker: groww          # groww (more brokers can be added under trader/brokers/)
+
+capital: 100000        # rupees the agent may trade with
+
+risk:
+  max_total_loss_pct: 20     # equity this far below capital -> exit everything, stop until an admin resets
+  max_daily_loss_pct: 5      # today's loss this big -> exit everything, stop for the rest of the day
+  max_position_pct: 30       # premium paid for one entry, as % of current equity
+  max_open_positions: 2
+  max_trades_per_day: 8
+  max_sl_pct: 40             # every entry needs a stop-loss no wider than this (% of entry price)
+  entry_window: ["09:20", "15:00"]   # IST; no new entries outside it
+  square_off_at: "15:15"             # IST; everything still open is sold
+
+instruments:
+  NIFTY: {enabled: true}
+  BANKNIFTY: {enabled: true}
+  SENSEX: {enabled: false}
+
+execution:
+  entry_buffer_pct: 1        # buy limit = LTP + this %
+  exit_buffer_pct: 2         # first sell limit = LTP - this %, widened on each retry
+  stop_limit_gap_pct: 5      # stop-loss limit price = trigger - this %
+  fill_wait_seconds: 10
+  cancel_wait_seconds: 10    # a cancel is a request; wait this long for the broker to confirm
+  monitor_interval_seconds: 2
+
+paper:
+  slippage_pct: 0.5          # simulated fills are this much worse than LTP
+
+# Estimated charges per order, used for P&L and loss limits. Check against your contract notes.
+charges:
+  brokerage_per_order: 20
+  stt_sell_pct: 0.15
+  txn_pct: 0.035
+  sebi_pct: 0.0001
+  gst_pct: 18
+  stamp_buy_pct: 0.003

@@ -1,0 +1,3 @@
+# The agent may run the trading program as 'trader', and nothing else.
+agent ALL=(trader) NOPASSWD: /opt/trader/.venv/bin/python -m trader *
+ubuntu ALL=(trader) NOPASSWD: /opt/trader/.venv/bin/python -m trader *

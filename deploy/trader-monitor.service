@@ -1,0 +1,15 @@
+[Unit]
+Description=Trading monitor: stop-losses, targets, square-off and loss limits
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=trader
+Group=trader
+WorkingDirectory=/var/lib/trader
+ExecStart=/opt/trader/.venv/bin/python -m trader monitor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
