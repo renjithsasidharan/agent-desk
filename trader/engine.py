@@ -400,7 +400,7 @@ class Engine:
         self._write("plans.json", b)
 
     def add_plan(self, underlying, option_type, strike, expiry, lots, amount, sl_pct, target_pct,
-                 above, below, until, group, note, setup="untagged"):
+                 above, below, until, group, note, setup="untagged", start=None):
         underlying = underlying.upper()
         check_setup(setup)
         risk = self.cfg["risk"]
@@ -419,6 +419,8 @@ class Engine:
         until = until or last
         if hhmm(until) > hhmm(last):
             raise RiskError(f"--until must be at or before the entry window end {last}")
+        if start and hhmm(start) >= hhmm(until):
+            raise RiskError(f"--from {start} must be before --until {until}")
         if len(self.plans(statuses=("active",))) >= MAX_ACTIVE_PLANS:
             raise RiskError(f"already {MAX_ACTIVE_PLANS} active plans; cancel some first")
         spot = self.broker.index_ltp(underlying)
@@ -428,12 +430,12 @@ class Engine:
         p = {"id": b["next_id"], "day": today(), "status": "active", "underlying": underlying,
              "type": option_type.upper(), "strike": str(strike), "expiry": expiry, "lots": lots,
              "amount": amount, "sl": sl_pct, "target": target_pct, "above": above, "below": below,
-             "until": until, "group": group, "note": note, "setup": setup, "spot_at_creation": spot,
+             "from": start, "until": until, "group": group, "note": note, "setup": setup, "spot_at_creation": spot,
              "created_at": now().isoformat(timespec="seconds")}
         b["next_id"] += 1
         b["plans"][str(p["id"])] = p
         self._write("plans.json", b)
-        self.journal("plan-added", **{k: p[k] for k in ("id", "underlying", "type", "strike", "above", "below", "until", "group")})
+        self.journal("plan-added", **{k: p[k] for k in ("id", "underlying", "type", "strike", "above", "below", "from", "until", "group")})
         return p
 
     def cancel_plan(self, plan_id, reason="cancelled"):
@@ -469,6 +471,8 @@ class Engine:
         for p in live:
             if self.plan_book()["plans"][str(p["id"])]["status"] != "active":
                 continue  # cancelled by a sibling that fired this tick
+            if p.get("from") and t.time() < hhmm(p["from"]):
+                continue
             spot = spots[p["underlying"]]
             hit = (p["above"] is not None and spot >= p["above"]) or (p["below"] is not None and spot <= p["below"])
             if not hit:
@@ -532,7 +536,7 @@ class Engine:
                     self.journal("exit-incomplete", id=t["id"], error=str(e))
                     self._reported = {**getattr(self, "_reported", {}), t["id"]: time.time()}
 
-        snap = self.snapshot()
+        snap = self.snapshot(marks)
         acct = snap["account"]
         if snap["open"] and now().time() >= hhmm(self.cfg["risk"]["square_off_at"]):
             self.close_all("square-off")

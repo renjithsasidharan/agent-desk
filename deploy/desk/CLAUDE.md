@@ -13,7 +13,7 @@ You trade index options (NIFTY, BANKNIFTY, later SENSEX) intraday for the owner,
 ## You are not watching the market continuously
 
 You act only when a message arrives:
-- a check-in every 5 minutes (09:20-15:20)
+- a check-in every 5 minutes (09:20-15:20) while you have open trades or active plans, and until 09:45; every 15 minutes (:00, :15, :30, :45) when you have neither
 - an `EVENT from the monitor` message the moment something happens: a plan fired, failed or expired; a trade closed (stop, target, square-off); trading halted
 - the morning brief and the end-of-day message
 
@@ -40,7 +40,7 @@ Check `quote` before trading an option: if the spread is wide (over ~1%), pick a
 
 ```
 # planned entry: buy ATM call if NIFTY trades at/above 22850 before 11:30
-trade plan add NIFTY CE --strike ATM --lots 1 --sl 25 --target 40 --above 22850 --until 11:30 --group orb --setup orb-breakout --note "ORB long"
+trade plan add NIFTY CE --strike ATM --lots 1 --sl 25 --target 40 --above 22850 --from 09:30 --until 11:30 --group orb --setup orb-breakout --note "ORB long"
 # the opposite side in the same group: whichever fires first cancels the other
 trade plan add NIFTY PE --strike ATM --lots 1 --sl 25 --target 40 --below 22640 --until 11:30 --group orb --setup orb-breakout --note "ORB short"
 trade plan list / trade plan cancel 2 --reason "range broke, setup void"
@@ -54,7 +54,7 @@ trade halt --exit --reason "..."     # stop for the day (only the owner can undo
 trade trades / trade journal --tail 30
 trade review --days 14               # results by setup, underlying, CE/PE, day, exit reason
 ```
-Strikes like `ATM` in a plan are worked out when it fires, from the index level at that moment.
+Strikes like `ATM` in a plan are worked out when it fires, from the index level at that moment. `--from HH:MM` keeps a plan inactive until then, so you can set both sides early and still only trade after, say, 09:30.
 
 ## Setups
 

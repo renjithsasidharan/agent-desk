@@ -63,7 +63,7 @@ def cmd_status(e, a):
         "halted_today": acct.get("halted_day") == config.today() and acct.get("halt_reason"),
         "killed": acct.get("killed"),
         "open": rows,
-        "active_plans": [{k: p.get(k) for k in ("id", "setup", "underlying", "type", "strike", "above", "below", "until", "group")}
+        "active_plans": [{k: p.get(k) for k in ("id", "setup", "underlying", "type", "strike", "above", "below", "from", "until", "group")}
                          for p in e.plans(statuses=("active",))],
     })
 
@@ -123,7 +123,7 @@ def cmd_plan(e, a):
             out(e.cancel_plan(a.id, a.reason or "cancelled by agent"))
         else:
             out(e.add_plan(a.underlying, a.type, a.strike, a.expiry, a.lots, a.amount, a.sl, a.target,
-                           a.above, a.below, a.until, a.group, a.note, a.setup))
+                           a.above, a.below, a.until, a.group, a.note, a.setup, getattr(a, "from")))
 
 
 def cmd_enter(e, a):
@@ -351,6 +351,7 @@ def main():
     w = pa.add_mutually_exclusive_group(required=True)
     w.add_argument("--above", type=float, help="fire when the index is at or above this")
     w.add_argument("--below", type=float, help="fire when the index is at or below this")
+    pa.add_argument("--from", help="HH:MM IST; not active before this (default: right away)")
     pa.add_argument("--until", help="HH:MM IST; expires after (default: entry window end)")
     pa.add_argument("--group", help="plans sharing a group cancel each other when one fires")
     pa.add_argument("--setup", required=True, help="setup name, e.g. orb-breakout (reuse names; see SETUPS.md)")

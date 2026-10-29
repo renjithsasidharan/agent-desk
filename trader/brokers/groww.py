@@ -4,11 +4,13 @@ import datetime as dt
 import io
 import json
 import os
+import time
 
 import pandas as pd
 import requests
 from growwapi import GrowwAPI
-from growwapi.groww.exceptions import GrowwAPIAuthenticationException, GrowwAPIException
+from growwapi.groww.exceptions import (GrowwAPIAuthenticationException, GrowwAPIException,
+                                       GrowwAPIRateLimitException)
 
 from ..config import INDICES, IST, UNDERLYINGS, today
 from .base import Broker, BrokerError, Contract, OrderResult
@@ -74,8 +76,19 @@ class GrowwBroker(Broker):
         return self._api
 
     def _call(self, fn, *args, **kwargs):
+        # Groww allows about 10 requests a second per group; on a rate-limit reply, back off and retry.
+        for wait in (0.3, 0.7, 1.5):
+            try:
+                return self._call_once(fn, *args, **kwargs)
+            except GrowwAPIRateLimitException:
+                time.sleep(wait)
+        return self._call_once(fn, *args, **kwargs)
+
+    def _call_once(self, fn, *args, **kwargs):
         try:
             return fn(self.api, *args, **kwargs)
+        except GrowwAPIRateLimitException:
+            raise
         except GrowwAPIAuthenticationException:
             with contextlib.redirect_stdout(io.StringIO()):
                 self._api = GrowwAPI(self._token(fresh=True))

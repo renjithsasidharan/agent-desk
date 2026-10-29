@@ -43,6 +43,13 @@ watch)
 nudge)
     in_window 0920 1520 || exit 0
     tmux has-session -t "$S" 2>/dev/null || exit 0
+    # Every 5 minutes while there is something to watch (and until 09:45); otherwise every 15.
+    busy=$(trade status 2>/dev/null | python3 -c 'import json,sys
+d = json.load(sys.stdin)
+print(1 if d.get("open") or d.get("active_plans") else 0)' 2>/dev/null || echo 1)
+    if [ "$busy" = 0 ] && [ "$(date +%H%M)" -gt 0945 ] && [ $((10#$(date +%M) % 15)) -ne 0 ]; then
+        exit 0
+    fi
     send "Check-in $(date +%H:%M) IST: run trade status, manage open trades, act on your plan. Keep it short."
     ;;
 close)

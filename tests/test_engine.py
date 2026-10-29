@@ -312,6 +312,45 @@ def test_unsettled_cancel_waits_then_monitor_finishes_exit():
     assert t["status"] == "closed" and t["exit_reason"] == "manual"
 
 
+def test_plan_from_time():
+    e, data = setup()
+    CLOCK[0] = CLOCK[0].replace(hour=9, minute=21)
+    try:
+        e.add_plan("NIFTY", "CE", "ATM", "nearest", 1, None, 25, None, 22850, None, "11:00", None, "", "x-test", "09:30")
+        data.spot = 22900.0
+        e.tick()
+        assert e.plans()[0]["status"] == "active"      # before --from
+        CLOCK[0] = CLOCK[0].replace(minute=30)
+        e.tick()
+        assert e.plans()[0]["status"] == "fired"
+        try:
+            e.add_plan("NIFTY", "PE", "ATM", "nearest", 1, None, 25, None, None, 22000, "10:00", None, "", "x-test", "10:00")
+            raise AssertionError("from >= until accepted")
+        except RiskError:
+            pass
+    finally:
+        CLOCK[0] = CLOCK[0].replace(hour=10, minute=0)
+
+
+def test_groww_retries_rate_limit():
+    try:
+        from trader.brokers import groww
+    except ImportError:
+        print("skip (no growwapi)")
+        return
+    b = groww.GrowwBroker.__new__(groww.GrowwBroker)
+    b._api = object()
+    calls = []
+
+    def flaky(api):
+        calls.append(1)
+        if len(calls) < 3:
+            raise groww.GrowwAPIRateLimitException()
+        return {"ok": 1}
+    groww.time.sleep = lambda s: None
+    assert b._call(flaky) == {"ok": 1} and len(calls) == 3
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
