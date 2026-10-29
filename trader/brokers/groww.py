@@ -4,6 +4,7 @@ import datetime as dt
 import io
 import json
 import os
+import re
 import time
 
 import pandas as pd
@@ -190,10 +191,34 @@ class GrowwBroker(Broker):
         else:
             row = self._row(spec)
             ex, seg, sym = row.exchange, "FNO", row.groww_symbol
-        out = self._call(lambda a: a.get_historical_candles(
-            exchange=ex, segment=seg, groww_symbol=sym,
-            start_time=start, end_time=end, candle_interval=interval, timeout=30))
-        return out.get("candles", [])
+
+        def fetch(s, e):
+            for attempt in range(3):  # Groww's candle service times out now and then
+                try:
+                    return self._call(lambda a: a.get_historical_candles(
+                        exchange=ex, segment=seg, groww_symbol=sym,
+                        start_time=s, end_time=e, candle_interval=interval, timeout=30)).get("candles", [])
+                except BrokerError as err:
+                    if "timeout" not in str(err).lower() or attempt == 2:
+                        raise
+                    time.sleep(2)
+
+        try:
+            return fetch(start, end)
+        except BrokerError as err:
+            # Groww caps the range per request ("... maximum of 30 days ..."): fetch it in pieces.
+            m = re.search(r"maximum of (\d+) days", str(err))
+            if not m:
+                raise
+        fmt = "%Y-%m-%d %H:%M:%S"
+        step = dt.timedelta(days=int(m.group(1)) - 1)
+        s, last = dt.datetime.strptime(start, fmt), dt.datetime.strptime(end, fmt)
+        rows = []
+        while s <= last:
+            e = min(s + step, last)
+            rows += fetch(s.strftime(fmt), e.strftime(fmt))
+            s = e + dt.timedelta(seconds=1)
+        return rows
 
     def option_chain(self, underlying, expiry):
         ex = UNDERLYINGS[underlying]["exchange"]
