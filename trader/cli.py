@@ -19,8 +19,9 @@ AGENT_USER = "agent"
 
 
 @contextlib.contextmanager
-def state_lock():
-    with open(os.path.join(config.STATE_DIR, "lock"), "w") as f:
+def state_lock(d):
+    """One lock per book: commands and the monitor never change a book at the same time."""
+    with open(os.path.join(d, "lock"), "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             yield
@@ -28,10 +29,11 @@ def state_lock():
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def build():
-    cfg = config.load()
-    broker = get_broker(cfg, config.secrets(), config.STATE_DIR)
-    return Engine(cfg, broker, config.STATE_DIR)
+def build(book, cfg=None):
+    bc = config.book_cfg(cfg or config.load(), book)
+    d = config.book_dir(book)
+    os.makedirs(d, exist_ok=True)
+    return Engine(bc, get_broker(bc, config.secrets(), config.STATE_DIR, d), d)
 
 
 def out(obj):
@@ -43,6 +45,20 @@ def is_agent():
 
 
 def cmd_status(e, a):
+    if a.all:
+        cfg = config.load()
+        rows = {}
+        for b in config.books(cfg):
+            st = status_of(build(b, cfg))
+            rows[b] = {k: st[k] for k in ("mode", "equity", "day_pnl", "day_loss_left", "trades_today",
+                                          "halted_today", "killed")} | {
+                "open": len(st["open"]), "plans": len(st["active_plans"])}
+        out(rows)
+    else:
+        out(status_of(e))
+
+
+def status_of(e):
     s = e.snapshot()
     risk = e.cfg["risk"]
     rows = []
@@ -51,8 +67,8 @@ def cmd_status(e, a):
         rows.append({k: t.get(k) for k in ("id", "setup", "symbol", "qty", "entry_price", "stop_trigger", "target", "status", "opened_at")}
                     | {"ltp": ltp, "pnl": round(e.unrealized(t, ltp), 2) if ltp else None})
     acct = s["account"]
-    out({
-        "mode": e.cfg["mode"], "broker": e.broker.name, "now": config.now().isoformat(timespec="seconds"),
+    return {
+        "book": e.cfg["book"], "mode": e.cfg["mode"], "broker": e.broker.name, "now": config.now().isoformat(timespec="seconds"),
         "capital": s["capital"], "equity": s["equity"], "day_pnl": s["day_pnl"],
         "day_loss_left": round(s["daily_loss_limit"] + s["day_pnl"], 2),
         "total_loss_left": round(s["equity"] - s["equity_floor"], 2),
@@ -65,7 +81,7 @@ def cmd_status(e, a):
         "open": rows,
         "active_plans": [{k: p.get(k) for k in ("id", "setup", "underlying", "type", "strike", "above", "below", "from", "until", "group")}
                          for p in e.plans(statuses=("active",))],
-    })
+    }
 
 
 def cmd_spot(e, a):
@@ -118,7 +134,7 @@ def cmd_plan(e, a):
     if a.action == "list":
         out(e.plans(day=a.day or config.today()))
         return
-    with state_lock():
+    with state_lock(e.dir):
         if a.action == "cancel":
             out(e.cancel_plan(a.id, a.reason or "cancelled by agent"))
         else:
@@ -127,12 +143,12 @@ def cmd_plan(e, a):
 
 
 def cmd_enter(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         out(e.enter(a.underlying, a.type, a.strike, a.expiry, a.lots, a.amount, a.sl, a.target, a.note, a.setup))
 
 
 def cmd_exit(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         t = e.book()["trades"].get(str(a.id))
         if not t or t["status"] == "closed":
             raise RiskError(f"trade {a.id} is not open")
@@ -140,17 +156,17 @@ def cmd_exit(e, a):
 
 
 def cmd_exit_all(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         out({"errors": e.close_all(a.reason or "manual-all")})
 
 
 def cmd_trail(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         out(e.trail(a.id, a.stop))
 
 
 def cmd_target(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         out(e.set_target(a.id, a.price))
 
 
@@ -161,18 +177,50 @@ def cmd_trades(e, a):
 def cmd_review(e, a):
     end = a.to or config.today()
     start = getattr(a, "from") or (dt.date.fromisoformat(end) - dt.timedelta(days=a.days - 1)).isoformat()
-    out(review(e.trades(), start, end))
+    if not a.all:
+        out(review(e.trades(), start, end))
+        return
+    cfg = config.load()
+    per = {b: review(build(b, cfg).trades(), start, end) for b in config.books(cfg)}
+    every = [t for b in config.books(cfg) for t in build(b, cfg).trades()]
+    combined = review(every, start, end)
+    if a.json:
+        out({"from": start, "to": end, "books": per, "combined": combined})
+        return
+    print(review_table(per, combined, start, end))
+
+
+def review_table(per, combined, start, end):
+    cols = [("trades", "trades"), ("win_rate_pct", "win %"), ("net_pnl", "net P&L"), ("avg_win", "avg win"),
+            ("avg_loss", "avg loss"), ("expectancy_per_trade", "per trade"), ("largest_loss", "worst"),
+            ("max_drawdown", "drawdown"), ("charges", "charges")]
+
+    def line(name, st):
+        cells = ["-" if st.get(k) is None else (f"{st[k]:,.0f}" if isinstance(st[k], float) and k != "win_rate_pct"
+                                                 else str(st[k])) for k, _ in cols]
+        return f"{name:<24}" + "".join(f"{c:>11}" for c in cells)
+
+    out_lines = [f"Results {start} to {end} (net of estimated charges, rupees)", "",
+                 f"{'':<24}" + "".join(f"{h:>11}" for _, h in cols)]
+    for b, r in per.items():
+        out_lines.append(line(b, r["overall"]))
+    out_lines.append(line("ALL BOOKS", combined["overall"]))
+    for b, r in per.items():
+        if r["by_setup"]:
+            out_lines += ["", f"{b}: by setup"]
+            out_lines += [line("  " + k, v) for k, v in r["by_setup"].items()]
+    return "\n".join(out_lines)
 
 
 def cmd_journal(e, a):
-    path = os.path.join(config.STATE_DIR, "journal", f"{a.day or config.today()}.jsonl")
+    path = os.path.join(e.dir, "journal", f"{a.day or config.today()}.jsonl")
     if os.path.exists(path):
         with open(path) as f:
             sys.stdout.writelines(f.readlines()[-a.tail:])
 
 
 def cmd_halt(e, a):
-    with state_lock():
+    with state_lock(e.dir):
         errors = e.close_all("halt") if a.exit else []
         e.halt(a.reason)
         out({"halted": config.today(), "errors": errors})
@@ -187,42 +235,50 @@ def cmd_funds(e, a):
 
 
 def cmd_monitor(e, a):
+    """Watch every book: plans, stops, targets, square-off and loss limits. Runs as a service."""
     if is_agent():
         raise RiskError("the monitor runs as a service; the agent cannot start it")
-    interval = e.cfg["execution"]["monitor_interval_seconds"]
-    e.journal("monitor-start", mode=e.cfg["mode"])
-    failures, key = 0, None
+    cfg = config.load()
+    for b in config.books(cfg):
+        build(b, cfg).journal("monitor-start", mode=config.book_cfg(cfg, b)["mode"])
+    failures = {}
     while True:
         n = config.now()
         if n.weekday() >= 5 or not dt.time(9, 14) <= n.time() <= dt.time(15, 35):
             time.sleep(30)
             continue
         try:
-            cfg = config.load()
-            if (cfg["mode"], cfg["broker"]) != key:  # mode or broker changed: rebuild
-                e = build() if key else e
-                key = (cfg["mode"], cfg["broker"])
-            e.cfg = cfg
-            with state_lock():
-                snap = e.tick()
-            status = {k: v for k, v in snap.items() if k != "open"} | {
-                "open_ids": [t["id"] for t in snap["open"]], "updated": n.isoformat(timespec="seconds")}
-            with open(os.path.join(config.STATE_DIR, "status.json.tmp"), "w") as f:
-                json.dump(status, f, default=str)
-            os.replace(os.path.join(config.STATE_DIR, "status.json.tmp"), os.path.join(config.STATE_DIR, "status.json"))
-            failures = 0
-        except Exception as ex:  # keep watching whatever happens
-            failures += 1
-            if failures in (1, 5) or failures % 30 == 0:
-                e.journal("monitor-error", error=f"{type(ex).__name__}: {ex}", failures=failures)
-            time.sleep(min(10, failures))
-        time.sleep(interval)
+            cfg = config.load()  # limit changes apply without a restart
+            names = config.books(cfg)
+        except Exception:
+            time.sleep(5)
+            continue
+        for b in names:  # one book's trouble never stops the others being watched
+            eng = None
+            try:
+                eng = build(b, cfg)
+                with state_lock(eng.dir):
+                    snap = eng.tick()
+                status = {k: v for k, v in snap.items() if k != "open"} | {
+                    "open_ids": [t["id"] for t in snap["open"]], "updated": n.isoformat(timespec="seconds")}
+                tmp = os.path.join(eng.dir, "status.json.tmp")
+                with open(tmp, "w") as f:
+                    json.dump(status, f, default=str)
+                os.replace(tmp, os.path.join(eng.dir, "status.json"))
+                failures[b] = 0
+            except Exception as ex:
+                failures[b] = failures.get(b, 0) + 1
+                k = failures[b]
+                if eng and (k in (1, 5) or k % 30 == 0):
+                    eng.journal("monitor-error", error=f"{type(ex).__name__}: {ex}", failures=k)
+        time.sleep(cfg["execution"]["monitor_interval_seconds"] if not any(failures.values())
+                   else min(10, max(failures.values())))
 
 
 def cmd_admin(e, a):
     if is_agent():
         raise RiskError("admin commands are for the owner only")
-    with state_lock():
+    with state_lock(e.dir):
         acct = e.account()
         if a.action == "resume":
             acct["halted_day"] = None
@@ -242,10 +298,12 @@ def cmd_live_check(e, a):
     """One real 1-lot round trip through the live broker: buy, stop placed, stop raised, sold."""
     if is_agent():
         raise RiskError("admin commands are for the owner only")
-    cfg = copy.deepcopy(config.load())
+    cfg = copy.deepcopy(e.cfg)
     cfg["mode"] = "live"
-    broker = get_broker(cfg, config.secrets(), config.STATE_DIR)
-    eng = Engine(cfg, broker, os.path.join(config.STATE_DIR, "livecheck"))
+    d = os.path.join(config.STATE_DIR, "livecheck")
+    os.makedirs(d, exist_ok=True)
+    broker = get_broker(cfg, config.secrets(), config.STATE_DIR, d)
+    eng = Engine(cfg, broker, d)
     u = a.underlying.upper()
     expiry = broker.expiries(u)[0]
     calls = [c for c in broker.contracts(u, expiry) if c.option_type == "CE"]
@@ -262,7 +320,7 @@ def cmd_live_check(e, a):
     steps = {"plan": plan}
     t = None
     try:
-        with state_lock():
+        with state_lock(eng.dir):
             r = eng.enter(u, "CE", c.strike, expiry, 1, None, 40, None, "live-check", "live-check")
             steps["enter"] = r
             if not r["ok"]:
@@ -299,8 +357,13 @@ def cmd_live_check(e, a):
 
 def main():
     p = argparse.ArgumentParser(prog="trade", description="Risk-checked option trading. Output is JSON.")
+    p.add_argument("--book", default="main", help="which agent's book (set for you in an agent's session)")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("status", help="equity, today's P&L, limits left, open trades").set_defaults(fn=cmd_status)
+    s = sub.add_parser("status", help="equity, today's P&L, limits left, open trades")
+    s.add_argument("--all", action="store_true", help="one line per book")
+    s.set_defaults(fn=cmd_status)
+    sub.add_parser("books", help="list the books").set_defaults(
+        fn=lambda e, a: print("\n".join(config.books(config.load()))))
     s = sub.add_parser("spot", help="index price(s): NIFTY BANKNIFTY SENSEX INDIAVIX")
     s.add_argument("underlying", nargs="+")
     s.set_defaults(fn=cmd_spot)
@@ -381,6 +444,8 @@ def main():
     s.add_argument("--day")
     s.set_defaults(fn=cmd_trades)
     s = sub.add_parser("review", help="results by setup, underlying, day and exit reason")
+    s.add_argument("--all", action="store_true", help="all books side by side, plus the total (a table)")
+    s.add_argument("--json", action="store_true", help="with --all: JSON instead of a table")
     s.add_argument("--days", type=int, default=14, help="calendar days back from --to (default 14)")
     s.add_argument("--from", help="YYYY-MM-DD")
     s.add_argument("--to", help="YYYY-MM-DD (default today)")
@@ -407,7 +472,7 @@ def main():
     s.set_defaults(fn=cmd_live_check)
     a = p.parse_args()
     try:
-        a.fn(build(), a)
+        a.fn(build(a.book), a)
     except (RiskError, BrokerError, KeyError, ValueError, IndexError) as ex:
         out({"ok": False, "error": f"{type(ex).__name__}: {ex}"})
         sys.exit(1)

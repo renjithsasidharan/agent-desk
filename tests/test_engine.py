@@ -351,6 +351,22 @@ def test_groww_retries_rate_limit():
     assert b._call(flaky) == {"ok": 1} and len(calls) == 3
 
 
+def test_book_config_merges_overrides():
+    from trader import config as cfgmod
+    assert cfgmod.books(CFG) == ["main", "active"]
+    main, active = cfgmod.book_cfg(CFG, "main"), cfgmod.book_cfg(CFG, "active")
+    assert main["risk"]["max_trades_per_day"] == 8 and active["risk"]["max_trades_per_day"] == 10
+    assert active["risk"]["max_daily_loss_pct"] == main["risk"]["max_daily_loss_pct"]   # not overridden
+    assert active["book"] == "active" and "books" not in active
+    assert cfgmod.books({}) == ["main"]
+    for bad in ("../x", "Main", ""):
+        try:
+            cfgmod.book_dir(bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

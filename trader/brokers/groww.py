@@ -63,10 +63,11 @@ class GrowwBroker(Broker):
                 raise BrokerError("secrets file needs GROWW_TOTP_SECRET or GROWW_API_SECRET")
         except GrowwAPIException as e:
             raise BrokerError(f"Groww login failed: {e}") from e
-        fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump({"day": _token_day(), "token": token}, f)
-        os.replace(path + ".tmp", path)
+        os.replace(tmp, path)
         return token
 
     @property
@@ -110,11 +111,12 @@ class GrowwBroker(Broker):
             if not os.path.exists(path):
                 r = requests.get(INSTRUMENTS_URL, timeout=60)
                 r.raise_for_status()
-                with open(path + ".tmp", "wb") as f:
+                tmp = f"{path}.{os.getpid()}.tmp"
+                with open(tmp, "wb") as f:
                     f.write(r.content)
-                os.replace(path + ".tmp", path)
+                os.replace(tmp, path)
                 for old in os.listdir(self.cache):
-                    if old.startswith("groww_instruments_") and old != os.path.basename(path):
+                    if old.startswith("groww_instruments_") and old.endswith(".csv") and old != os.path.basename(path):
                         os.remove(os.path.join(self.cache, old))
             df = pd.read_csv(path, low_memory=False)
             self._inst = df[(df.segment == "FNO") & df.instrument_type.isin(["CE", "PE", "FUT"])

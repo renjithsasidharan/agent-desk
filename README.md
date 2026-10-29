@@ -9,9 +9,22 @@ Risk-checked intraday index-option trading (NIFTY, BANKNIFTY, SENSEX) for a Clau
 ## How it fits together
 
 - **`trader` user:** the only user that can read the broker keys (`/etc/trader/secrets.env`) and place orders.
-- **`agent` user:** Claude runs here, in tmux session `desk`, and can only trade through `trade` (`sudo -u trader`). It cannot change the config or the code.
+- **`agent` user:** Claude runs here, one tmux session `desk-<book>` per agent, and can only trade through `trade` (`sudo -u trader`). It cannot change the config or the code.
 - **`trader-monitor` service:** every 2 seconds it fires planned entries and watches stops and targets. It sells everything at the square-off time and stops trading when a loss limit is hit.
-- **Event messages:** monitor events go to `/var/lib/trader/events.jsonl`, and `desk watch` types them into Claude's session.
+- **Event messages:** each book's monitor events go to `/var/lib/trader/books/<book>/events.jsonl`, and `desk watch` types them into that agent's session.
+
+## Books: one per agent
+
+`books:` in `config.yaml` lists the agents. Each book has its own capital and limits (overrides on top of the shared settings), state in `/var/lib/trader/books/<book>/`, a desk folder (`/home/agent/desk` for `main`, `/home/agent/desk-<book>` for the others), a tmux session `desk-<book>`, and a personality in `deploy/desk/personas/<book>.md`, appended to the shared `deploy/desk/RULES.md` to make that desk's `CLAUDE.md`.
+
+```
+trade review --all        # all books side by side, plus the total
+trade status --all
+desk list                 # sessions
+desk attach active        # watch one (Ctrl-b d to leave it running)
+```
+
+To add a book: add it under `books:` in `/opt/trader/config.yaml`, write `deploy/desk/personas/<book>.md`, and rerun setup.
 
 ## Install or update on the machine
 

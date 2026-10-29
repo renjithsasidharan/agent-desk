@@ -1,4 +1,11 @@
 #!/bin/sh
 # Every user runs the trading program as the 'trader' user, which alone can read the broker keys.
+# In an agent's session TRADE_BOOK names its book, so it never has to pass --book.
 cd /var/lib/trader 2>/dev/null || cd /
+if [ -n "${TRADE_BOOK:-}" ]; then
+    case " $* " in
+        *" --book "*) ;;
+        *) set -- --book "$TRADE_BOOK" "$@" ;;
+    esac
+fi
 exec sudo -n -u trader /opt/trader/.venv/bin/python -m trader "$@"

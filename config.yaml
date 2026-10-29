@@ -41,3 +41,14 @@ charges:
   sebi_pct: 0.0001
   gst_pct: 18
   stamp_buy_pct: 0.003
+
+# One book per agent. Each book uses the settings above, with its own overrides on top,
+# and has its own trades, plans, limits and results (trade review --all compares them).
+# When going live, the books' capital together must fit the money in the broker account.
+books:
+  main: {}                   # patient, selective: 0-2 trades a day
+  active:                    # intraday momentum: 3-6 trades a day, 1 lot, tighter stops
+    risk:
+      max_trades_per_day: 10
+      max_position_pct: 20
+      max_sl_pct: 30

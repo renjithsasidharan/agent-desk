@@ -19,6 +19,17 @@ chown -R root:root /opt/trader
 install -d -o trader -g agent -m 750 /var/lib/trader
 install -d -o trader -g trader -m 700 /var/lib/trader/private
 
+# Before books existed, the one book's files sat directly in /var/lib/trader: move them to books/main.
+if [ -f /var/lib/trader/trades.json ] && [ ! -d /var/lib/trader/books/main ]; then
+    systemctl stop trader-monitor 2>/dev/null || true
+    install -d -o trader -g trader /var/lib/trader/books/main
+    for f in account.json trades.json plans.json events.jsonl paper_orders.json status.json journal; do
+        [ -e "/var/lib/trader/$f" ] && mv "/var/lib/trader/$f" /var/lib/trader/books/main/
+    done
+    echo "moved the existing book to /var/lib/trader/books/main"
+fi
+install -d -o trader -g trader -m 755 /var/lib/trader/books
+
 # Broker keys: readable by the trading process only.
 install -d -o root -g trader -m 750 /etc/trader
 [ -f /etc/trader/secrets.env ] || install -o root -g trader -m 640 "$SRC/deploy/secrets.env.example" /etc/trader/secrets.env
@@ -33,8 +44,26 @@ systemctl restart trader-monitor
 echo "installed; monitor: $(systemctl is-active trader-monitor)"
 bash "$SRC/deploy/desk-units.sh"
 
-# Claude's desk: instructions are the owner's; notes, research and LEARNINGS.md are Claude's.
-install -d -o agent -g agent /home/agent/desk /home/agent/desk/notes /home/agent/desk/research /home/agent/desk/data
-install -o root -g root -m 644 "$SRC/deploy/desk/CLAUDE.md" /home/agent/desk/CLAUDE.md
-[ -f /home/agent/desk/SETUPS.md ] || printf '# Setups\n\nOne section per setup name used with --setup: market condition, entry trigger, stop, target.\n' \
-    | install -o agent -g agent -m 644 /dev/stdin /home/agent/desk/SETUPS.md
+# One desk folder per book (main = /home/agent/desk). CLAUDE.md is the owner's: the shared rules
+# plus that book's personality. notes/, research/, SETUPS.md and LEARNINGS.md are Claude's.
+for book in $(trade books); do
+    if [ "$book" = main ]; then d=/home/agent/desk; else d=/home/agent/desk-$book; fi
+    install -d -o agent -g agent "$d" "$d/notes" "$d/research" "$d/data"
+    persona="$SRC/deploy/desk/personas/$book.md"
+    [ -f "$persona" ] || { echo "missing $persona"; exit 1; }
+    cat "$SRC/deploy/desk/RULES.md" "$persona" | install -o root -g root -m 644 /dev/stdin "$d/CLAUDE.md"
+    [ -f "$d/SETUPS.md" ] || printf '# Setups\n\nOne section per setup name used with --setup: market condition, entry trigger, stop, target.\n' \
+        | install -o agent -g agent -m 644 /dev/stdin "$d/SETUPS.md"
+    [ -f "$d/LEARNINGS.md" ] || printf '# Learnings\n\nLasting lessons, each with evidence (trade ids, dates).\n' \
+        | install -o agent -g agent -m 644 /dev/stdin "$d/LEARNINGS.md"
+    [ -e "$d/.venv" ] || sudo -u agent ln -s /home/agent/desk/.venv "$d/.venv"   # shared pandas/numpy
+    # Claude asks once whether to trust a new folder; answer it here so the morning start is unattended.
+    sudo -u agent python3 - "$d" <<'PY'
+import json, sys
+p = "/home/agent/.claude.json"
+d = json.load(open(p))
+proj = d.setdefault("projects", {})
+proj.setdefault(sys.argv[1], dict(proj.get("/home/agent/desk", {})))["hasTrustDialogAccepted"] = True
+json.dump(d, open(p, "w"), indent=2)
+PY
+done
