@@ -355,7 +355,9 @@ def test_book_config_merges_overrides():
     from trader import config as cfgmod
     assert cfgmod.books(CFG) == ["main", "active"]
     main, active = cfgmod.book_cfg(CFG, "main"), cfgmod.book_cfg(CFG, "active")
-    assert main["risk"]["max_trades_per_day"] == 8 and active["risk"]["max_trades_per_day"] == 10
+    assert CFG["risk"]["max_trades_per_day"] == 8
+    assert main["risk"]["max_trades_per_day"] == 2 and active["risk"]["max_trades_per_day"] == 10
+    assert main["mode"] == "live" and active["mode"] == "paper" and main["capital"] == 14000
     assert active["risk"]["max_daily_loss_pct"] == main["risk"]["max_daily_loss_pct"]   # not overridden
     assert active["book"] == "active" and "books" not in active
     assert cfgmod.books({}) == ["main"]
@@ -365,6 +367,29 @@ def test_book_config_merges_overrides():
             raise AssertionError(bad)
         except ValueError:
             pass
+
+
+def test_rupee_loss_limits_win_over_percent():
+    e, data = setup(max_daily_loss=2500, max_total_loss=5000)
+    s = e.snapshot()
+    assert s["daily_loss_limit"] == 2500 and s["equity_floor"] == 95000
+    try:   # 1 lot ATM at 100 with a 40% stop risks ~2.7k: over 2,500
+        e.enter("NIFTY", "CE", "ATM", "nearest", 1, None, 40, None, "", "x-test")
+        raise AssertionError("should refuse")
+    except RiskError as ex:
+        assert "today's loss limit" in str(ex)
+    assert e.enter("NIFTY", "CE", "ATM", "nearest", 1, None, 20, None, "", "x-test")["ok"]
+
+
+def test_position_diffs():
+    from trader.engine import position_diffs, open_qty
+    trades = [{"symbol": "A", "status": "open", "qty": 65, "exit_fills": []},
+              {"symbol": "B", "status": "exiting", "qty": 130, "exit_fills": [[65, 1.0]]},
+              {"symbol": "C", "status": "closed", "qty": 65, "exit_fills": [[65, 1.0]]}]
+    held = [{"trading_symbol": "A", "quantity": 65}, {"trading_symbol": "B", "quantity": 130},
+            {"trading_symbol": "D", "quantity": 0}, {"trading_symbol": "E", "quantity": 65}]
+    assert position_diffs(open_qty(trades), held) == {
+        "B": {"program": 65, "broker": 130}, "E": {"program": 0, "broker": 65}}
 
 
 if __name__ == "__main__":

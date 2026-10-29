@@ -12,7 +12,7 @@ import time
 
 from . import config
 from .brokers import BrokerError, get_broker
-from .engine import Engine, RiskError
+from .engine import Engine, RiskError, open_qty, position_diffs
 from .review import review
 
 AGENT_USER = "agent"
@@ -242,6 +242,7 @@ def cmd_monitor(e, a):
     for b in config.books(cfg):
         build(b, cfg).journal("monitor-start", mode=config.book_cfg(cfg, b)["mode"])
     failures = {}
+    recon = {"at": 0.0, "last": {}, "reported": {}}
     while True:
         n = config.now()
         if n.weekday() >= 5 or not dt.time(9, 14) <= n.time() <= dt.time(15, 35):
@@ -271,8 +272,36 @@ def cmd_monitor(e, a):
                 k = failures[b]
                 if eng and (k in (1, 5) or k % 30 == 0):
                     eng.journal("monitor-error", error=f"{type(ex).__name__}: {ex}", failures=k)
+        try:
+            if time.time() - recon["at"] >= 30:
+                recon["at"] = time.time()
+                reconcile(cfg, recon)
+        except Exception:
+            pass  # a failed check is retried in 30 seconds
         time.sleep(cfg["execution"]["monitor_interval_seconds"] if not any(failures.values())
                    else min(10, max(failures.values())))
+
+
+def reconcile(cfg, state):
+    """Live books only: compare Groww's real positions with the program's records every 30 s.
+    A difference seen twice in a row (so not just a fill in flight) is reported to the live
+    books' agents, at most every 10 minutes per symbol."""
+    live = [build(b, cfg) for b in config.books(cfg) if config.book_cfg(cfg, b)["mode"] == "live"]
+    if not live:
+        return
+    trades = [t for eng in live for t in eng.trades()]
+    lc = os.path.join(config.STATE_DIR, "livecheck")
+    if os.path.exists(os.path.join(lc, "trades.json")):
+        trades += Engine(live[0].cfg, live[0].broker, lc).trades()
+    diffs = position_diffs(open_qty(trades), live[0].broker.positions())
+    for sym, d in diffs.items():
+        if state["last"].get(sym) == d and time.time() - state["reported"].get(sym, 0) > 600:
+            state["reported"][sym] = time.time()
+            for eng in live:
+                eng.journal("position-mismatch", symbol=sym, **d,
+                            note="Groww's position differs from the program's records. Check the Groww app; "
+                                 "the owner may need to close it by hand.")
+    state["last"] = diffs
 
 
 def cmd_admin(e, a):

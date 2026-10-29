@@ -16,8 +16,25 @@ class RiskError(Exception):
 # Journal events that are also sent to Claude's session as they happen.
 NOTIFY = {"plan-fired", "plan-failed", "plan-expired", "closed", "halted", "killed",
           "stop-lost", "stop-failed", "exit-incomplete", "entry-unfilled", "entry-unsettled",
-          "monitor-error"}
+          "monitor-error", "position-mismatch"}
 MAX_ACTIVE_PLANS = 6
+
+
+def open_qty(trades):
+    """Quantity still held per symbol, from the program's own records."""
+    out = {}
+    for t in trades:
+        if t["status"] in ("open", "exiting"):
+            left = t["qty"] - sum(q for q, _ in t["exit_fills"])
+            out[t["symbol"]] = out.get(t["symbol"], 0) + left
+    return out
+
+
+def position_diffs(expected, broker_positions):
+    """Symbols where the broker's net quantity differs from what the program thinks it holds."""
+    held = {p["trading_symbol"]: int(p.get("quantity") or 0) for p in broker_positions}
+    return {s: {"program": expected.get(s, 0), "broker": held.get(s, 0)}
+            for s in set(expected) | set(held) if expected.get(s, 0) != held.get(s, 0)}
 
 
 def check_setup(name):
@@ -112,14 +129,17 @@ class Engine:
         unreal = sum(self.unrealized(t, marks[t["symbol"]]) for t in open_ if t["symbol"] in marks)
         capital = self.cfg["capital"]
         risk = self.cfg["risk"]
+        # Loss limits in rupees (max_daily_loss / max_total_loss) win over the percentages.
+        daily = risk.get("max_daily_loss") or capital * risk["max_daily_loss_pct"] / 100
+        floor = capital - (risk.get("max_total_loss") or capital * risk["max_total_loss_pct"] / 100)
         return {
             "capital": capital,
             "equity": round(capital + acct["realized"] + unreal, 2),
             "day_pnl": round(realized_today + unreal, 2),
             "day_realized": round(realized_today, 2),
             "unrealized": round(unreal, 2),
-            "daily_loss_limit": round(capital * risk["max_daily_loss_pct"] / 100, 2),
-            "equity_floor": round(capital * (1 - risk["max_total_loss_pct"] / 100), 2),
+            "daily_loss_limit": round(daily, 2),
+            "equity_floor": round(floor, 2),
             "trades_today": len(day),
             "open": open_,
             "marks": marks,

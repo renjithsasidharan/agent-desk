@@ -10,6 +10,7 @@ capital: 100000        # rupees the agent may trade with
 risk:
   max_total_loss_pct: 20     # equity this far below capital -> exit everything, stop until an admin resets
   max_daily_loss_pct: 5      # today's loss this big -> exit everything, stop for the rest of the day
+  # max_total_loss / max_daily_loss: the same limits in rupees; when set, they win over the %
   max_position_pct: 30       # premium paid for one entry, as % of current equity
   max_open_positions: 2
   max_trades_per_day: 8
@@ -46,7 +47,15 @@ charges:
 # and has its own trades, plans, limits and results (trade review --all compares them).
 # When going live, the books' capital together must fit the money in the broker account.
 books:
-  main: {}                   # patient, selective: 0-2 trades a day
+  main:                      # patient, selective: 0-2 trades a day. LIVE from 2026-10-30
+    mode: live
+    capital: 14000           # owner's choice for the first live days (2026-10-30)
+    risk:
+      max_daily_loss: 2500   # rupees: one stopped-out lot, then it stops for the day
+      max_total_loss: 5000   # rupees: everything stops until an admin reset
+      max_open_positions: 1
+      max_trades_per_day: 2
+      max_position_pct: 95   # one at-the-money NIFTY lot (~₹11-13k) must fit
   active:                    # intraday momentum: 3-6 trades a day, 1 lot, tighter stops
     risk:
       max_trades_per_day: 10
