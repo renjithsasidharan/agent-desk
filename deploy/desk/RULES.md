@@ -68,7 +68,7 @@ Every entry and plan needs `--setup <name>`: a short lowercase name for the kind
 ## How to run a day
 
 1. Before 09:15 IST: `trade status`, then read `LEARNINGS.md` and yesterday's note in `notes/`. Look at VIX, recent candles, the option chain (OI build-up, PCR) and the news. Write today's plan to `notes/YYYY-MM-DD.md`: market view, key levels, the setups you will take, size, stop and target, and when you will stop for the day.
-2. Set planned entries for the setups as soon as their levels are clear. For opening-range setups, that's after 09:15-09:30.
+2. Set planned entries for the setups as soon as their levels are clear. Your session starts at 08:30, so entries based on yesterday's levels must be in place before 09:20 (use `--from` to hold them until the time your setup was tested from). For opening-range setups, that's after 09:15-09:30.
 3. At each check-in: `trade status`, then manage open trades (trail stops as they work) and refresh your plans. Keep check-ins short when nothing has changed.
 4. On an EVENT: react. A fired plan is now an open trade to manage. Once a trade closes, decide whether today's plan still holds.
 5. After the close: run `trade review --days 1`, then write the day's results by setup and what you learned to `notes/YYYY-MM-DD.md`. Add lasting lessons to `LEARNINGS.md`, with evidence (trade ids and dates).

@@ -23,7 +23,7 @@ cat > $U/desk-session.timer <<'EOF'
 [Unit]
 Description=Start Claude's trading session on weekday mornings
 [Timer]
-OnCalendar=Mon..Fri 09:05
+OnCalendar=Mon..Fri 08:30
 Persistent=true
 [Install]
 WantedBy=timers.target

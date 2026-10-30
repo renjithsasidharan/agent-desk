@@ -2,7 +2,7 @@
 # Claude trading desks: one tmux session "desk-<book>" per book, all run as the agent user.
 #   desk list                     books, their folders, and whether each session is running
 #   desk attach <book>            watch a session (detach: Ctrl-b then d; Ctrl-b 1 = events window)
-#   desk start [--force] [book]   open sessions with the morning brief (weekdays 08:30-15:00 unless --force)
+#   desk start [--force] [book]   open sessions with the morning brief (weekdays 08:00-15:00 unless --force)
 #   desk nudge                    check-in message to each running session
 #   desk close                    end-of-day message to each running session
 #   desk stop                     end all sessions
@@ -49,7 +49,7 @@ start)
     shift
     force=0
     if [ "${1:-}" = --force ]; then force=1; shift; fi
-    [ $force = 1 ] || in_window 0830 1500 || exit 0
+    [ $force = 1 ] || in_window 0800 1500 || exit 0
     targets=${1:-$(books)}
     started=""
     for b in $targets; do
