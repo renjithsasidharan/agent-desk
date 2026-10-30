@@ -8,6 +8,52 @@ Risk-checked intraday index-option trading (NIFTY, BANKNIFTY, SENSEX) for a Clau
 
 ## How it fits together
 
+```mermaid
+flowchart LR
+    subgraph AWS["AWS ap-south-1"]
+        sched["EventBridge Scheduler<br/>start 08:00 · stop 16:00"]
+        starter["starter Lambda<br/>tries other sizes if AWS has none"]
+        sns["SNS email<br/>08:45 if machine is down"]
+        subgraph EC2["EC2 machine (Elastic IP, whitelisted at Groww)"]
+            subgraph AG["user: agent"]
+                desk["desk timers<br/>08:30 start · check-ins · 15:35 close"]
+                main["Claude: desk-main<br/>patient · LIVE"]
+                active["Claude: desk-active<br/>momentum · paper"]
+            end
+            subgraph TR["user: trader (only one with the broker keys)"]
+                trade["trade command<br/>risk checks · orders · plans"]
+                monitor["trader-monitor<br/>every 2 s: plans, stops, targets,<br/>loss limits, 15:15 square-off"]
+                state[("state, one folder per book<br/>trades · plans · events")]
+                paper["paper broker<br/>simulated fills"]
+            end
+        end
+    end
+    groww["Groww Trade API<br/>prices · option chain · orders"]
+
+    sched --> starter --> EC2
+    sched --> sns
+    desk -- "brief, check-ins" --> main & active
+    main & active -- "sudo -u trader trade ..." --> trade
+    trade --> state
+    monitor --> state
+    state -- "events typed into the session" --> main & active
+    trade & monitor -- "live book" --> groww
+    trade & monitor -- "paper book" --> paper -- "live prices" --> groww
+```
+
+The agents decide; the program enforces. Claude can only act through `trade`, which checks every entry against the book's limits and places a stop order at Groww with it. The monitor keeps watching when Claude isn't looking.
+
+| Time (IST, Mon-Fri) | What happens |
+|---|---|
+| 08:00 | Machine starts (other sizes if AWS has none of the usual one) |
+| 08:30 | Each agent gets its morning brief: notes, research, today's plan |
+| 08:45 | Email to the owner if the machine is still down |
+| 09:20 | Entry window opens; check-ins every 5 minutes while busy, otherwise every 15 |
+| 15:00 | No new entries |
+| 15:15 | Monitor sells anything still open |
+| 15:35 | Agents write results and lessons |
+| 15:55 / 16:00 | Sessions end, machine stops |
+
 - **`trader` user:** the only user that can read the broker keys (`/etc/trader/secrets.env`) and place orders.
 - **`agent` user:** Claude runs here, one tmux session `desk-<book>` per agent, and can only trade through `trade` (`sudo -u trader`). It cannot change the config or the code.
 - **`trader-monitor` service:** every 2 seconds it fires planned entries and watches stops and targets. It sells everything at the square-off time and stops trading when a loss limit is hit.
