@@ -6,7 +6,17 @@ Claude Code agents that trade Indian index options (NIFTY, BANKNIFTY, SENSEX) in
 - **The program enforces:** every order goes through the `trade` command, which checks it against the book's limits and places a stop-loss order at the broker with every entry. A monitor watches stops, targets, loss limits and the 15:15 square-off every 2 seconds, whether or not the agent is looking.
 - **Paper first:** books start in paper mode (live prices, simulated fills). Going live is a config change per book.
 
-**To set it up yourself, follow [SETUP.md](SETUP.md).** Read the [disclaimer](#disclaimer) first.
+**Setting it up:** let your coding agent (Claude Code, Codex CLI, ...) do it. Read the [disclaimer](#disclaimer), then give it this prompt:
+
+```
+Set up agent-desk for me: https://github.com/renjithsasidharan/agent-desk
+Clone it, read README.md and SETUP.md in full, then follow SETUP.md step by step.
+Do the steps marked "Agent" yourself and run each step's check before moving on.
+For steps marked "You", tell me exactly what to do and wait until I say it's done.
+Follow the "Rules for the agent" in SETUP.md at all times.
+```
+
+You do the few steps only a person can: AWS and Claude logins, the Groww key, and an email confirmation. Going live stays your decision. [SETUP.md](SETUP.md) has the steps, also for doing it by hand.
 
 
 - `trader/`: the `trade` command. `engine.py` holds the order handling and risk rules, `brokers/` the broker adapters (Groww, plus paper trading on live prices), and `review.py` the results by setup.
