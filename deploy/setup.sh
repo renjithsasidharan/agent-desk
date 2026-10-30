@@ -4,8 +4,30 @@
 set -euo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 
+# Packages and clock: the trading day runs on India time.
+missing=$(for p in tmux rsync git python3-venv python3-pip; do dpkg -s $p >/dev/null 2>&1 || echo $p; done)
+if [ -n "$missing" ]; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $missing >/dev/null
+fi
+[ "$(timedatectl show -p Timezone --value)" = Asia/Kolkata ] || timedatectl set-timezone Asia/Kolkata
+
 id trader >/dev/null 2>&1 || useradd --system --home-dir /var/lib/trader --shell /usr/sbin/nologin trader
 id agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash agent
+
+# Claude Code for the agent user (log in once by hand: see SETUP.md), and a Python with pandas
+# for its research. Claude runs without permission prompts: the agent user is the sandbox.
+[ -x /home/agent/.local/bin/claude ] || sudo -iu agent bash -c 'curl -fsSL https://claude.ai/install.sh | bash' >/dev/null
+[ -x /home/agent/desk/.venv/bin/python ] || sudo -iu agent bash -c \
+    'mkdir -p ~/desk && python3 -m venv ~/desk/.venv && ~/desk/.venv/bin/pip install -q pandas numpy'
+sudo -iu agent python3 - <<'PY'
+import json, os
+p = os.path.expanduser("~/.claude/settings.json")
+os.makedirs(os.path.dirname(p), exist_ok=True)
+d = json.load(open(p)) if os.path.exists(p) else {}
+d.setdefault("skipDangerousModePermissionPrompt", True)
+json.dump(d, open(p, "w"), indent=2)
+PY
 
 # Code and config: owned by root, so neither the agent nor the trading process can change them.
 install -d -m 755 /opt/trader
@@ -51,7 +73,11 @@ for book in $(trade books); do
     install -d -o agent -g agent "$d" "$d/notes" "$d/research" "$d/data"
     persona="$SRC/deploy/desk/personas/$book.md"
     [ -f "$persona" ] || { echo "missing $persona"; exit 1; }
-    cat "$SRC/deploy/desk/RULES.md" "$persona" | install -o root -g root -m 644 /dev/stdin "$d/CLAUDE.md"
+    # /etc/trader/desk/<book>.md (optional, not in the repo): the owner's own notes for that book,
+    # e.g. deploy/desk/live-note.example.md once it trades real money.
+    extra=/etc/trader/desk/$book.md
+    [ -f "$extra" ] || extra=/dev/null
+    cat "$SRC/deploy/desk/RULES.md" "$persona" "$extra" | install -o root -g root -m 644 /dev/stdin "$d/CLAUDE.md"
     [ -f "$d/SETUPS.md" ] || printf '# Setups\n\nOne section per setup name used with --setup: market condition, entry trigger, stop, target.\n' \
         | install -o agent -g agent -m 644 /dev/stdin "$d/SETUPS.md"
     [ -f "$d/LEARNINGS.md" ] || printf '# Learnings\n\nLasting lessons, each with evidence (trade ids, dates).\n' \
@@ -59,9 +85,9 @@ for book in $(trade books); do
     [ -e "$d/.venv" ] || sudo -u agent ln -s /home/agent/desk/.venv "$d/.venv"   # shared pandas/numpy
     # Claude asks once whether to trust a new folder; answer it here so the morning start is unattended.
     sudo -u agent python3 - "$d" <<'PY'
-import json, sys
+import json, os, sys
 p = "/home/agent/.claude.json"
-d = json.load(open(p))
+d = json.load(open(p)) if os.path.exists(p) else {}
 proj = d.setdefault("projects", {})
 proj.setdefault(sys.argv[1], dict(proj.get("/home/agent/desk", {})))["hasTrustDialogAccepted"] = True
 json.dump(d, open(p, "w"), indent=2)

@@ -357,7 +357,9 @@ def test_book_config_merges_overrides():
     main, active = cfgmod.book_cfg(CFG, "main"), cfgmod.book_cfg(CFG, "active")
     assert CFG["risk"]["max_trades_per_day"] == 8
     assert main["risk"]["max_trades_per_day"] == 2 and active["risk"]["max_trades_per_day"] == 10
-    assert main["mode"] == "live" and active["mode"] == "paper" and main["capital"] == 14000
+    assert main["mode"] == "paper" and main["risk"]["max_open_positions"] == 1
+    live = cfgmod._merge(main, {"mode": "live", "capital": 15000})
+    assert live["mode"] == "live" and live["capital"] == 15000 and live["risk"]["max_trades_per_day"] == 2
     assert active["risk"]["max_daily_loss_pct"] == main["risk"]["max_daily_loss_pct"]   # not overridden
     assert active["book"] == "active" and "books" not in active
     assert cfgmod.books({}) == ["main"]

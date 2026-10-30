@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 INSTANCE = os.environ["INSTANCE_ID"]
 TOPIC = os.environ["TOPIC_ARN"]
+REGION = os.environ.get("AWS_REGION", "ap-south-1")
 # All arm64 (the disk holds an arm64 system) with at least 2 vCPU and 4 GB; cheapest first,
 # mixing families and generations so one shortage doesn't take out the whole list.
 SIZES = os.environ.get("SIZES", "t4g.medium t4g.large c7g.large m6g.large c8g.large m7g.large").split()
@@ -78,7 +79,7 @@ def handler(event, context):
             sns.publish(TopicArn=TOPIC, Subject="Trading machine is NOT running",
                         Message=f"{INSTANCE} is {state} ({size}) at {time.strftime('%H:%M')} UTC. "
                                 f"The 08:00-09:45 IST starter could not start it. Start it in the EC2 console "
-                                f"(ap-south-1) or with: aws ec2 start-instances --region ap-south-1 "
+                                f"({REGION}) or with: aws ec2 start-instances --region {REGION} "
                                 f"--instance-ids {INSTANCE}")
         return {"state": state, "size": size}
     # Leave a minute of the Lambda's time for the last attempt.

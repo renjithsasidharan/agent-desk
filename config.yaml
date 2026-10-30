@@ -2,7 +2,7 @@
 # The agent reads it but cannot change it. Changes apply on the next command;
 # restart the monitor (sudo systemctl restart trader-monitor) to be sure it picks them up.
 
-mode: paper            # paper = live prices, simulated orders. live = real orders.
+mode: paper            # paper = live prices, simulated orders. live = real orders (see SETUP.md first).
 broker: groww          # groww (more brokers can be added under trader/brokers/)
 
 capital: 100000        # rupees the agent may trade with
@@ -47,15 +47,17 @@ charges:
 # and has its own trades, plans, limits and results (trade review --all compares them).
 # When going live, the books' capital together must fit the money in the broker account.
 books:
-  main:                      # patient, selective: 0-2 trades a day. LIVE from 2026-10-30
-    mode: live
-    capital: 14000           # owner's choice for the first live days (2026-10-30)
+  main:                      # patient, selective: 0-2 trades a day
     risk:
-      max_daily_loss: 2500   # rupees: one stopped-out lot, then it stops for the day
-      max_total_loss: 5000   # rupees: everything stops until an admin reset
       max_open_positions: 1
       max_trades_per_day: 2
-      max_position_pct: 95   # one at-the-money NIFTY lot (~₹11-13k) must fit
+    # Going live (see SETUP.md): start small, with rupee limits, e.g.
+    # mode: live
+    # capital: 15000
+    # risk:
+    #   max_daily_loss: 2500   # rupees: about one stopped-out lot, then it stops for the day
+    #   max_total_loss: 5000   # rupees: everything stops until an admin reset
+    #   max_position_pct: 95   # one at-the-money NIFTY lot must fit in a small book
   active:                    # intraday momentum: 3-6 trades a day, 1 lot, tighter stops
     risk:
       max_trades_per_day: 10

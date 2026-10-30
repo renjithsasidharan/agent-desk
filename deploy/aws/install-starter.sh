@@ -1,12 +1,13 @@
 #!/bin/bash
-# Install or update the morning starter (starter.py) from a Mac with the AWS CLI logged in:
-#   bash deploy/aws/install-starter.sh owner@example.com
-# Schedules (Asia/Kolkata, Mon-Fri): groww-trader-start every 15 min 08:00-09:45 (no-op once the
-# machine is up), groww-trader-check at 08:45 (email if it is still down), groww-trader-stop at 16:00.
+# Install or update the machine's weekday schedule, from a computer with the AWS CLI logged in:
+#   bash deploy/aws/install-starter.sh <instance-id> <alert email>      (AWS_REGION, default ap-south-1)
+# Schedules (Asia/Kolkata, Mon-Fri): groww-trader-start runs the starter (starter.py) every 15 min
+# 08:00-09:45 (no-op once the machine is up), groww-trader-check emails at 08:45 if it is still down,
+# groww-trader-stop stops it at 16:00.
 set -euo pipefail
-EMAIL=${1:?usage: install-starter.sh <alert email>}
-REGION=ap-south-1
-INSTANCE=i-06ab29ab790f6c8ea
+INSTANCE=${1:?usage: install-starter.sh <instance-id> <alert email>}
+EMAIL=${2:?usage: install-starter.sh <instance-id> <alert email>}
+REGION=${AWS_REGION:-ap-south-1}
 FN=groww-trader-starter
 ACCT=$(aws sts get-caller-identity --query Account --output text)
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -55,13 +56,20 @@ aws logs create-log-group --log-group-name /aws/lambda/$FN 2>/dev/null || true
 aws logs put-retention-policy --log-group-name /aws/lambda/$FN --retention-in-days 90
 FN_ARN=$(aws lambda get-function --function-name $FN --query Configuration.FunctionArn --output text)
 
-# The existing scheduler role may now also run the function.
-aws iam put-role-policy --role-name groww-trader-scheduler --policy-name invoke-starter --policy-document \
+# The scheduler's role: run the starter and stop this one machine.
+SROLE=groww-trader-scheduler
+if ! aws iam get-role --role-name $SROLE >/dev/null 2>&1; then
+    aws iam create-role --role-name $SROLE --tags Key=Project,Value=groww-trader --assume-role-policy-document \
+        "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"scheduler.amazonaws.com\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"StringEquals\":{\"aws:SourceAccount\":\"$ACCT\"}}}]}" >/dev/null
+fi
+aws iam put-role-policy --role-name $SROLE --policy-name start-stop --policy-document \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ec2:StartInstances\",\"ec2:StopInstances\"],\"Resource\":\"arn:aws:ec2:$REGION:$ACCT:instance/$INSTANCE\"}]}"
+aws iam put-role-policy --role-name $SROLE --policy-name invoke-starter --policy-document \
     "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"$FN_ARN\"}]}"
 sleep 10
 
-schedule() {  # name, cron, input
-    local target="{\"Arn\":\"$FN_ARN\",\"RoleArn\":\"arn:aws:iam::$ACCT:role/groww-trader-scheduler\",\"Input\":$(printf '%s' "$3" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"RetryPolicy\":{\"MaximumRetryAttempts\":2,\"MaximumEventAgeInSeconds\":600}}"
+schedule() {  # name, cron, input[, target ARN]
+    local target="{\"Arn\":\"${4:-$FN_ARN}\",\"RoleArn\":\"arn:aws:iam::$ACCT:role/$SROLE\",\"Input\":$(printf '%s' "$3" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"RetryPolicy\":{\"MaximumRetryAttempts\":2,\"MaximumEventAgeInSeconds\":600}}"
     local verb=create-schedule
     aws scheduler get-schedule --name "$1" >/dev/null 2>&1 && verb=update-schedule
     aws scheduler $verb --name "$1" --schedule-expression "$2" --schedule-expression-timezone Asia/Kolkata \
@@ -70,4 +78,5 @@ schedule() {  # name, cron, input
 }
 schedule groww-trader-start "cron(0/15 8-9 ? * MON-FRI *)" '{"action":"start"}'
 schedule groww-trader-check "cron(45 8 ? * MON-FRI *)" '{"action":"check"}'
+schedule groww-trader-stop "cron(0 16 ? * MON-FRI *)" "{\"InstanceIds\":[\"$INSTANCE\"]}" arn:aws:scheduler:::aws-sdk:ec2:stopInstances
 echo "installed $FN_ARN"
