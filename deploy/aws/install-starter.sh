@@ -1,7 +1,9 @@
 #!/bin/bash
 # Install or update the machine's weekday schedule, from a computer with the AWS CLI logged in:
 #   bash deploy/aws/install-starter.sh <instance-id> <alert email>
-#   (AWS_REGION, default ap-south-1; DESK_NAME, default agent-desk, prefixes every AWS name)
+#   (AWS_REGION, default ap-south-1)
+# Every AWS name starts with the machine's Project tag (set by create-machine.sh, default
+# agent-desk), so rerunning this updates the same schedules. DESK_NAME overrides it.
 # Schedules (Asia/Kolkata, Mon-Fri): <name>-start runs the starter (starter.py) every 15 min
 # 08:00-09:45 (no-op once the machine is up), <name>-check emails at 08:45 if it is still down,
 # <name>-stop stops it at 16:00.
@@ -9,13 +11,17 @@ set -euo pipefail
 INSTANCE=${1:?usage: install-starter.sh <instance-id> <alert email>}
 EMAIL=${2:?usage: install-starter.sh <instance-id> <alert email>}
 REGION=${AWS_REGION:-ap-south-1}
-NAME=${DESK_NAME:-agent-desk}
+aws() { command aws --region "$REGION" "$@"; }
+TAG=$(aws ec2 describe-instances --instance-ids "$INSTANCE" \
+    --query "Reservations[0].Instances[0].Tags[?Key=='Project'].Value | [0]" --output text)
+[ "$TAG" != None ] || TAG=agent-desk
+NAME=${DESK_NAME:-$TAG}
+echo "names: $NAME-*"
 FN=$NAME-starter
 ACCT=$(aws sts get-caller-identity --query Account --output text)
 HERE=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-aws() { command aws --region "$REGION" "$@"; }
 
 # Alerts: an SNS topic emailing the owner (AWS sends a confirmation link first).
 TOPIC=$(aws sns create-topic --name $NAME-alerts --tags Key=Project,Value=$NAME --query TopicArn --output text)
