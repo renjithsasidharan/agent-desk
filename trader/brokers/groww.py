@@ -195,13 +195,19 @@ class GrowwBroker(Broker):
             ex, seg, sym = row.exchange, "FNO", row.groww_symbol
 
         def fetch(s, e):
-            for attempt in range(3):  # Groww's candle service times out now and then
+            # Groww's candle service times out now and then, and every book (and the monitor) shares
+            # one rate limit: back off for longer than _call does before giving up.
+            for attempt in range(6):
                 try:
                     return self._call(lambda a: a.get_historical_candles(
                         exchange=ex, segment=seg, groww_symbol=sym,
                         start_time=s, end_time=e, candle_interval=interval, timeout=30)).get("candles", [])
+                except GrowwAPIRateLimitException:
+                    if attempt == 5:
+                        raise BrokerError("Groww: rate limited on candles; try again in a minute")
+                    time.sleep(2 ** attempt)
                 except BrokerError as err:
-                    if "timeout" not in str(err).lower() or attempt == 2:
+                    if "timeout" not in str(err).lower() or attempt == 5:
                         raise
                     time.sleep(2)
 
@@ -220,6 +226,7 @@ class GrowwBroker(Broker):
             e = min(s + step, last)
             rows += fetch(s.strftime(fmt), e.strftime(fmt))
             s = e + dt.timedelta(seconds=1)
+            time.sleep(0.3)   # leave room for the monitor's calls
         return rows
 
     def option_chain(self, underlying, expiry):

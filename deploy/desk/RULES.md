@@ -34,7 +34,7 @@ trade candles NIFTY-FUT --interval 5minute --days 5        # with volume and OI
 trade candles NIFTY26N0322700CE --interval 1minute --days 1
 trade candles INDIAVIX --interval 15minute --days 10
 ```
-Intervals: 1minute 2minute 3minute 5minute 10minute 15minute 30minute 1hour 4hour 1day 1week. History goes back to at least January 2025; long ranges are fetched in 30-day pieces for you, e.g. `trade candles NIFTY --interval 5minute --from "2025-06-01 09:00:00" --to "2026-10-29 15:30:00"`. Backtest on months of data, not days. Index candles have no volume; use NIFTY-FUT for volume. Bars before 09:15 are pre-open; drop them. You can also search the web for news and global cues.
+Intervals: 1minute 2minute 3minute 5minute 10minute 15minute 30minute 1hour 4hour 1day 1week. History goes back to at least January 2025; long ranges are fetched in 30-day pieces for you, e.g. `trade candles NIFTY --interval 5minute --from "2025-06-01 09:00:00" --to "2026-10-29 15:30:00"`. Backtest on months of data, not days. Index candles have no volume; use NIFTY-FUT for volume. Candles cover the regular session only (09:15-15:30): the 09:00-09:08 pre-open auction bar is dropped because its high and low are not real trades, and `1day`/`1week` bars are built from session bars, so the previous day's high and low are right. Before 2026-10-31 they were not (2026-10-29 showed a high of 23,132.55; the real high was 22,961.60): re-run any backtest or level built on daily bars or unfiltered intraday bars fetched before then. You can also search the web for news and global cues.
 
 Check `quote` before trading an option: if the spread is wide (over ~1%), pick a more liquid strike.
 

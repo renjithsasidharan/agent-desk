@@ -392,6 +392,43 @@ def test_position_diffs():
         "B": {"program": 65, "broker": 130}, "E": {"program": 0, "broker": 65}}
 
 
+def test_candles_drop_pre_open_and_build_daily():
+    from trader.cli import daily_bars, session_bars
+    rows = [["2026-10-29T09:00:00", 22698.85, 23132.55, 22698.35, 22700.75, None, None],
+            ["2026-10-29T09:15:00", 22694.25, 22734.6, 22656.85, 22717.05, None, None],
+            ["2026-10-29T15:15:00", 22940.0, 22961.6, 22930.0, 22936.75, None, None],
+            ["2026-10-29T15:30:00", 22936.75, 22999.0, 22936.75, 22936.75, None, None],
+            ["2026-10-30T09:15:00", 22964.5, 23019.0, 22920.0, 22990.0, 10, None],
+            ["2026-10-30T09:30:00", 22990.0, 23000.0, 22905.1, 22950.0, 5, None]]
+    bars = session_bars(rows)
+    assert [b[0].strftime("%H:%M") for b in bars] == ["09:15", "15:15", "09:15", "09:30"]
+    d = daily_bars(bars)
+    assert [b[1:5] for b in d] == [[22694.25, 22961.6, 22656.85, 22936.75], [22964.5, 23019.0, 22905.1, 22950.0]]
+    assert d[1][5] == 15 and d[0][5] is None
+    assert len(daily_bars(bars, weekly=True)) == 1
+
+
+def test_groww_candles_back_off_on_rate_limit():
+    try:
+        from trader.brokers import groww
+    except ImportError:
+        print("skip (no growwapi)")
+        return
+    b = groww.GrowwBroker.__new__(groww.GrowwBroker)
+    b._api = object()
+    calls, waits = [], []
+
+    def api_call(fn):
+        calls.append(1)
+        if len(calls) < 3:
+            raise groww.GrowwAPIRateLimitException()
+        return {"candles": [["2026-10-29T09:15:00", 1, 2, 0.5, 1.5]]}
+    b._call = api_call
+    groww.time.sleep = waits.append
+    assert len(b.candles("NIFTY", "5minute", "2026-10-29 09:00:00", "2026-10-29 15:30:00")) == 1
+    assert waits == [1, 2]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

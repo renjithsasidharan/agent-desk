@@ -117,17 +117,56 @@ def cmd_quote(e, a):
     out(e.broker.quote(a.symbol))
 
 
+SESSION = ("09:15", "15:30")   # NSE and BSE regular session; earlier bars are the 09:00-09:08 pre-open auction
+
+
+def bar_time(ts):
+    if isinstance(ts, (int, float)):
+        return dt.datetime.fromtimestamp(ts, config.IST).replace(tzinfo=None)
+    return dt.datetime.fromisoformat(str(ts)).replace(tzinfo=None)
+
+
+def session_bars(rows):
+    """[time, o, h, l, c, volume, oi] rows inside the regular session. The pre-open bar's high and low
+    are auction prints, not trades (2026-10-29: 23,132.55 at 09:00, real high 22,961.60)."""
+    bars = []
+    for r in rows:
+        t = bar_time(r[0])
+        if SESSION[0] <= t.strftime("%H:%M") < SESSION[1]:
+            bars.append([t, *(list(r[1:7]) + [None] * 6)[:6]])
+    return bars
+
+
+def daily_bars(bars, weekly=False):
+    """Daily (or weekly) bars built from session bars, so the previous day's high and low are real."""
+    days = {}
+    for t, o, h, l, c, v, oi in bars:
+        d = t.date() - dt.timedelta(days=t.weekday() if weekly else 0)
+        b = days.get(d)
+        if b is None:
+            days[d] = [dt.datetime.combine(d, dt.time()), o, h, l, c, v, oi]
+            continue
+        b[2], b[3], b[4], b[6] = max(b[2], h), min(b[3], l), c, oi
+        if v is not None:
+            b[5] = (b[5] or 0) + v
+    return list(days.values())
+
+
 def cmd_candles(e, a):
     end = a.to or config.now().strftime("%Y-%m-%d %H:%M:%S")
     start = getattr(a, "from") or (config.now() - dt.timedelta(days=a.days)).strftime("%Y-%m-%d 09:00:00")
-    rows = e.broker.candles(a.spec, a.interval, start, end)
+    daily = a.interval in ("1day", "1week") and not a.pre_open
+    rows = e.broker.candles(a.spec, "15minute" if daily else a.interval, start, end)
+    if a.pre_open:
+        bars = [[bar_time(r[0]), *(list(r[1:7]) + [None] * 6)[:6]] for r in rows]
+    else:
+        bars = session_bars(rows)
+        if daily:
+            bars = daily_bars(bars, a.interval == "1week")
     w = csv.writer(sys.stdout)
     w.writerow(["time", "open", "high", "low", "close", "volume", "oi"])
-    for r in rows:
-        ts = r[0]
-        if isinstance(ts, (int, float)):
-            ts = dt.datetime.fromtimestamp(ts, config.IST).strftime("%Y-%m-%d %H:%M")
-        w.writerow([ts, *(list(r[1:7]) + [None] * 6)[:6]])
+    for b in bars:
+        w.writerow([b[0].isoformat(), *b[1:]])
 
 
 def cmd_plan(e, a):
@@ -414,6 +453,8 @@ def main():
     s.add_argument("--days", type=int, default=5)
     s.add_argument("--from", help="YYYY-MM-DD HH:MM:SS")
     s.add_argument("--to", help="YYYY-MM-DD HH:MM:SS")
+    s.add_argument("--pre-open", action="store_true",
+                   help="keep Groww's raw bars, including the 09:00-09:15 pre-open (dropped by default)")
     s.set_defaults(fn=cmd_candles)
     s = sub.add_parser("enter", help="buy an option with a stop-loss")
     s.add_argument("underlying", help="NIFTY | BANKNIFTY | SENSEX")
