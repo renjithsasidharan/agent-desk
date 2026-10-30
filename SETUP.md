@@ -15,19 +15,19 @@ Allow about an hour, plus at least two weeks of paper trading before real money.
 ## 1. Create the machine
 
 ```
-git clone <this repo> && cd groww-trader
+git clone <this repo> && cd agent-desk
 bash deploy/aws/create-machine.sh
 ```
 
-It creates the SSH key `~/.ssh/groww-trader.pem`, a firewall rule allowing SSH from your current IP, a t4g.medium machine (2 vCPU, 4 GB, ARM) running Ubuntu 24.04, and a static IP (Elastic IP). It prints the machine ID and the IP.
+It creates the SSH key `~/.ssh/agent-desk.pem`, a firewall rule allowing SSH from your current IP, a t4g.medium machine (2 vCPU, 4 GB, ARM) running Ubuntu 24.04, and a static IP (Elastic IP). It prints the machine ID and the IP.
 
 If your home IP changes often, run `bash deploy/aws/create-machine.sh 0.0.0.0/0` instead. Login stays key-only, so this is reasonably safe, but anyone can then try to connect.
 
 ## 2. Install the program
 
 ```
-rsync -a --exclude .git -e "ssh -i ~/.ssh/groww-trader.pem" ./ ubuntu@<IP>:trader-src/
-ssh -i ~/.ssh/groww-trader.pem ubuntu@<IP>
+rsync -a --exclude .git -e "ssh -i ~/.ssh/agent-desk.pem" ./ ubuntu@<IP>:trader-src/
+ssh -i ~/.ssh/agent-desk.pem ubuntu@<IP>
 cd trader-src && sudo bash deploy/setup.sh
 ```
 

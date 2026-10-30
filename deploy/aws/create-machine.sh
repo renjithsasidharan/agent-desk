@@ -1,14 +1,15 @@
 #!/bin/bash
 # Create the trading machine, from a computer with the AWS CLI logged in:
-#   bash deploy/aws/create-machine.sh [ssh-cidr]      (AWS_REGION, default ap-south-1 = Mumbai)
-# Makes: an SSH key (~/.ssh/groww-trader.pem), a security group allowing SSH from ssh-cidr (default:
+#   bash deploy/aws/create-machine.sh [ssh-cidr]
+#   (AWS_REGION, default ap-south-1 = Mumbai; DESK_NAME, default agent-desk, names everything)
+# Makes: an SSH key (~/.ssh/<name>.pem), a security group allowing SSH from ssh-cidr (default:
 # this computer's IP; pass 0.0.0.0/0 if your IP changes, login stays key-only), a t4g.medium Ubuntu
 # 24.04 arm64 machine with a 20 GB encrypted disk, and an Elastic IP: the static address you
-# register with the broker. Everything is tagged Project=groww-trader.
+# register with the broker. Everything is tagged Project=<name>.
 set -euo pipefail
 REGION=${AWS_REGION:-ap-south-1}
 CIDR=${1:-$(curl -fsS https://checkip.amazonaws.com)/32}
-NAME=groww-trader
+NAME=${DESK_NAME:-agent-desk}
 KEY=~/.ssh/$NAME.pem
 aws() { command aws --region "$REGION" "$@"; }
 tags() { echo "ResourceType=$1,Tags=[{Key=Name,Value=$NAME},{Key=Project,Value=$NAME}]"; }

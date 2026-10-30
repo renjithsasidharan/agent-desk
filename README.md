@@ -1,4 +1,4 @@
-# groww-trader
+# agent-desk
 
 Claude Code agents that trade Indian index options (NIFTY, BANKNIFTY, SENSEX) intraday through the Groww Trade API, inside hard risk limits they cannot change. It runs on one small AWS machine in Mumbai, on weekdays only.
 
@@ -81,7 +81,7 @@ To add a book: add it under `books:` in `/opt/trader/config.yaml`, write `deploy
 
 ## Machine schedule (AWS)
 
-EventBridge Scheduler, Asia/Kolkata, Mon-Fri. `groww-trader-start` runs the starter function (`deploy/aws/starter.py`) every 15 minutes from 08:00 to 09:45. If AWS has no spare machine of the usual size (t4g.medium), it switches the stopped machine to the next arm64 size in its list and tries again; the next morning it tries t4g.medium first. `groww-trader-check` emails the owner at 08:45 if the machine is still down. `groww-trader-stop` stops it at 16:00. Install or update: `bash deploy/aws/install-starter.sh <instance-id> <email>`; the machine itself: `deploy/aws/create-machine.sh`.
+EventBridge Scheduler, Asia/Kolkata, Mon-Fri. AWS names start with `DESK_NAME` (default `agent-desk`). `agent-desk-start` runs the starter function (`deploy/aws/starter.py`) every 15 minutes from 08:00 to 09:45. If AWS has no spare machine of the usual size (t4g.medium), it switches the stopped machine to the next arm64 size in its list and tries again; the next morning it tries t4g.medium first. `agent-desk-check` emails the owner at 08:45 if the machine is still down. `agent-desk-stop` stops it at 16:00. Install or update: `bash deploy/aws/install-starter.sh <instance-id> <email>`; the machine itself: `deploy/aws/create-machine.sh`.
 
 ## Security model
 

@@ -1,14 +1,16 @@
 #!/bin/bash
 # Install or update the machine's weekday schedule, from a computer with the AWS CLI logged in:
-#   bash deploy/aws/install-starter.sh <instance-id> <alert email>      (AWS_REGION, default ap-south-1)
-# Schedules (Asia/Kolkata, Mon-Fri): groww-trader-start runs the starter (starter.py) every 15 min
-# 08:00-09:45 (no-op once the machine is up), groww-trader-check emails at 08:45 if it is still down,
-# groww-trader-stop stops it at 16:00.
+#   bash deploy/aws/install-starter.sh <instance-id> <alert email>
+#   (AWS_REGION, default ap-south-1; DESK_NAME, default agent-desk, prefixes every AWS name)
+# Schedules (Asia/Kolkata, Mon-Fri): <name>-start runs the starter (starter.py) every 15 min
+# 08:00-09:45 (no-op once the machine is up), <name>-check emails at 08:45 if it is still down,
+# <name>-stop stops it at 16:00.
 set -euo pipefail
 INSTANCE=${1:?usage: install-starter.sh <instance-id> <alert email>}
 EMAIL=${2:?usage: install-starter.sh <instance-id> <alert email>}
 REGION=${AWS_REGION:-ap-south-1}
-FN=groww-trader-starter
+NAME=${DESK_NAME:-agent-desk}
+FN=$NAME-starter
 ACCT=$(aws sts get-caller-identity --query Account --output text)
 HERE=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
@@ -16,16 +18,16 @@ trap 'rm -rf "$TMP"' EXIT
 aws() { command aws --region "$REGION" "$@"; }
 
 # Alerts: an SNS topic emailing the owner (AWS sends a confirmation link first).
-TOPIC=$(aws sns create-topic --name groww-trader-alerts --tags Key=Project,Value=groww-trader --query TopicArn --output text)
+TOPIC=$(aws sns create-topic --name $NAME-alerts --tags Key=Project,Value=$NAME --query TopicArn --output text)
 if ! aws sns list-subscriptions-by-topic --topic-arn "$TOPIC" --query 'Subscriptions[].Endpoint' --output text | grep -qw "$EMAIL"; then
     aws sns subscribe --topic-arn "$TOPIC" --protocol email --notification-endpoint "$EMAIL" >/dev/null
     echo "confirmation email sent to $EMAIL"
 fi
 
 # The function's role: start and resize this one machine, send alerts, write its log.
-ROLE=groww-trader-starter
+ROLE=$NAME-starter
 if ! aws iam get-role --role-name $ROLE >/dev/null 2>&1; then
-    aws iam create-role --role-name $ROLE --tags Key=Project,Value=groww-trader --assume-role-policy-document \
+    aws iam create-role --role-name $ROLE --tags Key=Project,Value=$NAME --assume-role-policy-document \
         '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
     sleep 10   # a new role takes a moment before Lambda accepts it
 fi
@@ -49,7 +51,7 @@ if aws lambda get-function --function-name $FN >/dev/null 2>&1; then
 else
     aws lambda create-function --function-name $FN --runtime python3.12 --architectures arm64 \
         --handler starter.handler --role "arn:aws:iam::$ACCT:role/$ROLE" --timeout 600 --memory-size 128 \
-        --environment "$ENV" --zip-file "fileb://$TMP/starter.zip" --tags Project=groww-trader >/dev/null
+        --environment "$ENV" --zip-file "fileb://$TMP/starter.zip" --tags Project=$NAME >/dev/null
 fi
 aws lambda wait function-updated --function-name $FN
 aws logs create-log-group --log-group-name /aws/lambda/$FN 2>/dev/null || true
@@ -57,9 +59,9 @@ aws logs put-retention-policy --log-group-name /aws/lambda/$FN --retention-in-da
 FN_ARN=$(aws lambda get-function --function-name $FN --query Configuration.FunctionArn --output text)
 
 # The scheduler's role: run the starter and stop this one machine.
-SROLE=groww-trader-scheduler
+SROLE=$NAME-scheduler
 if ! aws iam get-role --role-name $SROLE >/dev/null 2>&1; then
-    aws iam create-role --role-name $SROLE --tags Key=Project,Value=groww-trader --assume-role-policy-document \
+    aws iam create-role --role-name $SROLE --tags Key=Project,Value=$NAME --assume-role-policy-document \
         "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"scheduler.amazonaws.com\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"StringEquals\":{\"aws:SourceAccount\":\"$ACCT\"}}}]}" >/dev/null
 fi
 aws iam put-role-policy --role-name $SROLE --policy-name start-stop --policy-document \
@@ -76,7 +78,7 @@ schedule() {  # name, cron, input[, target ARN]
         --flexible-time-window '{"Mode":"OFF"}' --target "$target" --state ENABLED >/dev/null
     echo "$1: $2"
 }
-schedule groww-trader-start "cron(0/15 8-9 ? * MON-FRI *)" '{"action":"start"}'
-schedule groww-trader-check "cron(45 8 ? * MON-FRI *)" '{"action":"check"}'
-schedule groww-trader-stop "cron(0 16 ? * MON-FRI *)" "{\"InstanceIds\":[\"$INSTANCE\"]}" arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+schedule $NAME-start "cron(0/15 8-9 ? * MON-FRI *)" '{"action":"start"}'
+schedule $NAME-check "cron(45 8 ? * MON-FRI *)" '{"action":"check"}'
+schedule $NAME-stop "cron(0 16 ? * MON-FRI *)" "{\"InstanceIds\":[\"$INSTANCE\"]}" arn:aws:scheduler:::aws-sdk:ec2:stopInstances
 echo "installed $FN_ARN"
