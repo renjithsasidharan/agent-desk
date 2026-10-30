@@ -26,6 +26,10 @@ desk attach active        # watch one (Ctrl-b d to leave it running)
 
 To add a book: add it under `books:` in `/opt/trader/config.yaml`, write `deploy/desk/personas/<book>.md`, and rerun setup.
 
+## Machine schedule (AWS)
+
+EventBridge Scheduler, Asia/Kolkata, Mon-Fri. `groww-trader-start` runs the starter function (`deploy/aws/starter.py`) every 15 minutes from 08:00 to 09:45. If AWS has no spare machine of the usual size (t4g.medium), it switches the stopped machine to the next arm64 size in its list and tries again; the next morning it tries t4g.medium first. `groww-trader-check` emails the owner at 08:45 if the machine is still down. `groww-trader-stop` stops it at 16:00. Install or update: `bash deploy/aws/install-starter.sh <email>`.
+
 ## Install or update on the machine
 
 ```
