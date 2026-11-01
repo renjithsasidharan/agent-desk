@@ -43,6 +43,12 @@ charges:
   gst_pct: 18
   stamp_buy_pct: 0.003
 
+# Alerts through AWS SNS (deploy/aws/install-starter.sh creates the topic and prints its ARN):
+# every live trade and problem as it happens, and a summary of every book after the close.
+alerts:
+  sns_topic: ""              # e.g. arn:aws:sns:ap-south-1:123456789012:agent-desk-alerts; empty = off
+  summary_at: "15:40"        # IST
+
 # One book per agent. Each book uses the settings above, with its own overrides on top,
 # and has its own trades, plans, limits and results (trade review --all compares them).
 # When going live, the books' capital together must fit the money in the broker account.

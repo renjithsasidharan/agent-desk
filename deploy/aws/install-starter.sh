@@ -76,6 +76,22 @@ aws iam put-role-policy --role-name $SROLE --policy-name invoke-starter --policy
     "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"$FN_ARN\"}]}"
 sleep 10
 
+# The machine's own role: it may publish to the alerts topic (trade alerts, daily summary), nothing else.
+BROLE=$NAME-box
+if ! aws iam get-role --role-name $BROLE >/dev/null 2>&1; then
+    aws iam create-role --role-name $BROLE --tags Key=Project,Value=$NAME --assume-role-policy-document \
+        '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+    aws iam create-instance-profile --instance-profile-name $BROLE >/dev/null
+    aws iam add-role-to-instance-profile --instance-profile-name $BROLE --role-name $BROLE
+    sleep 10
+fi
+aws iam put-role-policy --role-name $BROLE --policy-name alerts --policy-document \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"sns:Publish\",\"Resource\":\"$TOPIC\"}]}"
+if ! aws ec2 describe-iam-instance-profile-associations --filters Name=instance-id,Values="$INSTANCE" \
+        --query 'IamInstanceProfileAssociations[].AssociationId' --output text | grep -q .; then
+    aws ec2 associate-iam-instance-profile --instance-id "$INSTANCE" --iam-instance-profile Name=$BROLE >/dev/null
+fi
+
 schedule() {  # name, cron, input[, target ARN]
     local target="{\"Arn\":\"${4:-$FN_ARN}\",\"RoleArn\":\"arn:aws:iam::$ACCT:role/$SROLE\",\"Input\":$(printf '%s' "$3" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"RetryPolicy\":{\"MaximumRetryAttempts\":2,\"MaximumEventAgeInSeconds\":600}}"
     local verb=create-schedule
@@ -88,3 +104,4 @@ schedule $NAME-start "cron(0/15 8-9 ? * MON-FRI *)" '{"action":"start"}'
 schedule $NAME-check "cron(45 8 ? * MON-FRI *)" '{"action":"check"}'
 schedule $NAME-stop "cron(0 16 ? * MON-FRI *)" "{\"InstanceIds\":[\"$INSTANCE\"]}" arn:aws:scheduler:::aws-sdk:ec2:stopInstances
 echo "installed $FN_ARN"
+echo "alerts topic for /opt/trader/config.yaml (alerts.sns_topic): $TOPIC"

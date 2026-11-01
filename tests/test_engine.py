@@ -431,6 +431,61 @@ def test_groww_candles_back_off_on_rate_limit():
     assert waits == [1, 2]
 
 
+def test_alerts_send_live_events_once_and_a_daily_summary():
+    import json as _json
+    from trader import alerts, config as cfgmod
+    root = tempfile.mkdtemp()
+    old_state = cfgmod.STATE_DIR
+    cfgmod.STATE_DIR = root
+    try:
+        cfg = copy.deepcopy(CFG)
+        cfg["books"] = {"main": {"mode": "live", "capital": 15000, "risk": {"max_total_loss": 5000}},
+                        "active": {}}
+        day, mdir = "2026-11-02", cfgmod.book_dir("main")
+        os.makedirs(os.path.join(mdir, "journal"))
+        trade = {"id": 1, "day": day, "symbol": "NIFTY26N0323100CE", "status": "closed", "pnl": 1240.0,
+                 "exit_reason": "target", "setup": "pdhl", "stop_trigger": 95.0, "target": 175.0, "note": ""}
+        with open(os.path.join(mdir, "trades.json"), "w") as f:
+            _json.dump({"next_id": 2, "trades": {"1": trade}}, f)
+        with open(os.path.join(mdir, "account.json"), "w") as f:
+            _json.dump({"realized": 1240.0, "killed": None, "halted_day": None}, f)
+        journal = os.path.join(mdir, "journal", f"{day}.jsonl")
+        events = [{"ts": f"{day}T09:31:02+05:30", "event": "plan-fired", "id": 1},
+                  {"ts": f"{day}T09:31:03+05:30", "event": "entered", "id": 1, "symbol": trade["symbol"],
+                   "qty": 65, "price": 120.5, "setup": "pdhl"},
+                  {"ts": f"{day}T09:31:04+05:30", "event": "stop-placed", "id": 1},
+                  {"ts": f"{day}T11:02:00+05:30", "event": "closed", "id": 1, "symbol": trade["symbol"],
+                   "setup": "pdhl", "reason": "target", "entry": 120.5, "exit": 140.0, "qty": 65, "pnl": 1240.0},
+                  {"ts": f"{day}T11:05:00+05:30", "event": "position-mismatch", "symbol": "X",
+                   "program": 0, "broker": 65, "note": "Check the Groww app."}]
+        sent = []
+        a = alerts.Alerter(lambda s, b: sent.append((s, b)), os.path.join(root, "alerts.json"))
+        with open(journal, "w") as f:
+            f.write(_json.dumps(events[0]) + "\n")
+        at = lambda hm: dt.datetime.fromisoformat(f"{day}T{hm}:00+05:30")
+        a.check(cfg, at("09:30"))             # first run: what's already there is skipped
+        assert sent == []
+        with open(journal, "a") as f:
+            for ev in events[1:]:
+                f.write(_json.dumps(ev) + "\n")
+        a.check(cfg, at("11:05"))             # the mismatch is under 5 s old: it waits
+        assert [s for s, _ in sent] == ["[main LIVE] Bought NIFTY26N0323100CE",
+                                        "[main LIVE] Closed NIFTY26N0323100CE +Rs 1,240"]
+        assert "Stop ₹95.00: about -₹1,658 if it is hit." in sent[0][1]
+        a.check(cfg, at("11:06"))
+        assert sent[2][0] == "[main LIVE] CHECK: position-mismatch" and len(sent) == 3
+        a2 = alerts.Alerter(lambda s, b: sent.append((s, b)), os.path.join(root, "alerts.json"))
+        a2.check(cfg, at("15:39"))            # restart: nothing is sent twice
+        assert len(sent) == 3
+        a2.check(cfg, at("15:40"))
+        a2.check(cfg, at("15:45"))
+        assert len(sent) == 4 and sent[3][0] == "Trading day 2026-11-02: main +Rs 1,240, active +Rs 0"
+        assert "main (LIVE): 1 trade(s), day +₹1,240, equity ₹16,240, ₹6,240 left" in sent[3][1]
+        assert all(x.isascii() for x, _ in sent)
+    finally:
+        cfgmod.STATE_DIR = old_state
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

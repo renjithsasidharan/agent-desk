@@ -60,10 +60,13 @@ install -m 755 "$SRC/deploy/trade" /usr/local/bin/trade
 install -m 440 "$SRC/deploy/sudoers" /etc/sudoers.d/trader
 visudo -cf /etc/sudoers.d/trader >/dev/null
 install -m 644 "$SRC/deploy/trader-monitor.service" /etc/systemd/system/trader-monitor.service
+install -m 644 "$SRC/deploy/trader-alerts.service" /etc/systemd/system/trader-alerts.service
 systemctl daemon-reload
-systemctl enable --now trader-monitor >/dev/null 2>&1
-systemctl restart trader-monitor
-echo "installed; monitor: $(systemctl is-active trader-monitor)"
+for s in trader-monitor trader-alerts; do
+    systemctl enable --now $s >/dev/null 2>&1
+    systemctl restart $s
+done
+echo "installed; monitor: $(systemctl is-active trader-monitor), alerts: $(systemctl is-active trader-alerts)"
 bash "$SRC/deploy/desk-units.sh"
 
 # One desk folder per book (main = /home/agent/desk). CLAUDE.md is the owner's: the shared rules

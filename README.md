@@ -74,6 +74,7 @@ The agents decide; the program enforces. Claude can only act through `trade`, wh
 - **`trader` user:** the only user that can read the broker keys (`/etc/trader/secrets.env`) and place orders.
 - **`agent` user:** Claude runs here, one tmux session `desk-<book>` per agent, and can only trade through `trade` (`sudo -u trader`). It cannot change the config or the code.
 - **`trader-monitor` service:** every 2 seconds it fires planned entries and watches stops and targets. It sells everything at the square-off time and stops trading when a loss limit is hit.
+- **`trader-alerts` service:** emails the owner through AWS SNS: every live entry and exit, anything that may need them, and a summary of every book at 15:40.
 - **Event messages:** each book's monitor events go to `/var/lib/trader/books/<book>/events.jsonl`, and `desk watch` types them into that agent's session.
 
 ## Books: one per agent

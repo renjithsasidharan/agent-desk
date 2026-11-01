@@ -132,6 +132,8 @@ aws sns list-subscriptions --region ap-south-1 --query 'Subscriptions[].Subscrip
 
 Three schedules (`-start`, `-check`, `-stop`) should be `ENABLED`, and the subscription should be a long ARN, not `PendingConfirmation`. AWS can take a minute to update it after the click.
 
+The script also lets the machine publish to that topic and prints the topic's ARN. Put it in `/opt/trader/config.yaml` on the machine, under `alerts: sns_topic:`, then `sudo systemctl restart trader-alerts` and send a test with `trade alerts --test`. From then on you get an email for every live entry and exit, anything that may need you (a halt, a stop problem, a position mismatch), and a summary of every book at 15:40.
+
 From then on, Monday to Friday (India time):
 
 | Time | What happens |

@@ -343,6 +343,16 @@ def reconcile(cfg, state):
     state["last"] = diffs
 
 
+def cmd_alerts(e, a):
+    if is_agent():
+        raise RiskError("alerts are the owner's; the agent cannot run them")
+    from . import alerts
+    if a.test:
+        out(alerts.test(config.load()))
+    else:
+        alerts.run()
+
+
 def cmd_admin(e, a):
     if is_agent():
         raise RiskError("admin commands are for the owner only")
@@ -531,6 +541,9 @@ def main():
     sub.add_parser("login", help="check the broker login works").set_defaults(fn=cmd_login)
     sub.add_parser("funds", help="broker margin/funds").set_defaults(fn=cmd_funds)
     sub.add_parser("monitor", help="(service) watch stops, targets and limits").set_defaults(fn=cmd_monitor)
+    s = sub.add_parser("alerts", help="(service) email live trades, problems and a daily summary via AWS SNS")
+    s.add_argument("--test", action="store_true", help="send one test alert and exit")
+    s.set_defaults(fn=cmd_alerts)
     s = sub.add_parser("admin", help="(owner) resume | reset | positions")
     s.add_argument("action", choices=["resume", "reset", "positions"])
     s.set_defaults(fn=cmd_admin)

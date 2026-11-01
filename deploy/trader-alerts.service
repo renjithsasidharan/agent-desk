@@ -1,0 +1,15 @@
+[Unit]
+Description=Trading alerts: live trades, problems and the daily summary, via AWS SNS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=trader
+Group=trader
+WorkingDirectory=/var/lib/trader
+ExecStart=/opt/trader/.venv/bin/python -m trader alerts
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
