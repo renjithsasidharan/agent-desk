@@ -31,7 +31,7 @@ PY
 
 # Code and config: owned by root, so neither the agent nor the trading process can change them.
 install -d -m 755 /opt/trader
-rsync -a --delete --exclude config.yaml --exclude .venv --exclude '*.egg-info' "$SRC/" /opt/trader/
+rsync -a --delete --exclude .git --exclude config.yaml --exclude .venv --exclude '*.egg-info' "$SRC/" /opt/trader/
 [ -f /opt/trader/config.yaml ] || install -m 644 "$SRC/config.yaml" /opt/trader/config.yaml
 chown -R root:root /opt/trader
 [ -x /opt/trader/.venv/bin/python ] || python3 -m venv /opt/trader/.venv
